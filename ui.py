@@ -68,7 +68,7 @@ from src.llm.model import LLMModel
 # Local uploaded image (from developer note)
 PROJECT_IMAGE_PATH = "/mnt/data/af72e198-500e-402d-b9d6-76fecee9bd55.png"
 
-st.set_page_config(page_title="InstaForce - AI-powered Salesforce deployment engine", layout="wide")
+st.set_page_config(page_title="InstaForce - AI powered Salesforce deployment engine", layout="wide")
 
 # ---- helpers ----
 def safe_serialize(obj: Any) -> str:
@@ -81,7 +81,7 @@ def append_log(agent_logs: Dict[str, list], agent_name: str, message: str, level
     agent_logs.setdefault(agent_name, []).append({"t": time.time(), "level": level, "msg": message})
 
 # ---- UI layout ----
-st.title("⚡ InstaForce - AI-powered Salesforce deployment engine")
+st.title("⚡ InstaForce - AI powered Salesforce deployment engine")
 
 left_col, mid_col, right_col = st.columns([3, 4, 4])
 
@@ -100,12 +100,12 @@ with left_col:
     
     go_live = st.button("🚀 Go Live", type="primary")
 
-    if show_project_image:
-        try:
-            st.markdown("**Project structure (uploaded screenshot)**")
-            st.image(PROJECT_IMAGE_PATH, use_column_width=True)
-        except Exception:
-            st.write("Project image not found at path:", PROJECT_IMAGE_PATH)
+    # if show_project_image:
+    #     try:
+    #         st.markdown("**Project structure (uploaded screenshot)**")
+    #         st.image(PROJECT_IMAGE_PATH, use_column_width=True)
+    #     except Exception:
+    #         st.write("Project image not found at path:", PROJECT_IMAGE_PATH)
 
 with mid_col:
     st.header("Live Agent Logs")

@@ -3,6 +3,7 @@ import subprocess
 import json
 import xml.etree.ElementTree as ET
 import sys
+import shutil
 from typing import Dict, Any, List
 from src.state.state import State
 from src.agents.baseagent import BaseAgentNode
@@ -49,6 +50,11 @@ class DeployAgent(BaseAgentNode):
         DEPLOY_ROOT = "force-app"
         FORCE_APP_ROOT = os.path.join(DEPLOY_ROOT ,"main", "default")
 
+        # Check if force-app folder exists and clean it before deployment
+        if os.path.exists(DEPLOY_ROOT):
+            print(f"[INFO] Removing existing force-app folder: {DEPLOY_ROOT}")
+            shutil.rmtree(DEPLOY_ROOT)
+            print(f"[OK] Removed {DEPLOY_ROOT}")
 
         os.makedirs(FORCE_APP_ROOT, exist_ok=True)
         # files =state["files"]
@@ -85,7 +91,8 @@ class DeployAgent(BaseAgentNode):
             SF_EXE, "project", "deploy", "start",
             "-o", SF_USERNAME_ALIAS,
             # "-x", package_xml_path,
-            "-d", os.path.join(DEPLOY_ROOT, "force-app"),
+            # Use the root force-app folder directly; avoid force-app/force-app duplication
+            "-d", DEPLOY_ROOT,
             "-w", "60",
             "--json"
         ]
