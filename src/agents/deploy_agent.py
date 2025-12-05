@@ -67,13 +67,34 @@ class DeployAgent(BaseAgentNode):
             fname = f["fileName"]
             full_path = os.path.join(DEPLOY_ROOT, rel_path, fname)
 
-            # Validate XML first
-            try:
-                ET.fromstring(f["content"])
-                print(f"[OK] XML validated: {fname}")
-            except ET.ParseError as e:
-                print(f"[ERROR] Invalid XML: {fname}\n{e}")
-                sys.exit(1)
+            # Validate content based on file type
+            file_ext = os.path.splitext(fname)[1].lower()
+            
+            if file_ext in ['.xml', '.object', '.layout', '.profile', '.permissionset']:
+                # Validate XML files
+                try:
+                    ET.fromstring(f["content"])
+                    print(f"[OK] XML validated: {fname}")
+                except ET.ParseError as e:
+                    print(f"[ERROR] Invalid XML: {fname}\n{e}")
+                    sys.exit(1)
+            elif file_ext in ['.cls', '.trigger']:
+                # Validate Apex files - basic check for non-empty content
+                if not f["content"].strip():
+                    print(f"[ERROR] Empty Apex file: {fname}")
+                    sys.exit(1)
+                print(f"[OK] Apex file validated: {fname}")
+            elif file_ext in ['.js', '.cmp', '.app', '.evt']:
+                # Lightning/Aura components - basic check
+                if not f["content"].strip():
+                    print(f"[ERROR] Empty component file: {fname}")
+                    sys.exit(1)
+                print(f"[OK] Component file validated: {fname}")
+            else:
+                # Generic validation for other files
+                if not f["content"].strip():
+                    print(f"[WARN] Empty file: {fname}")
+                print(f"[OK] File validated: {fname}")
 
             os.makedirs(os.path.dirname(full_path), exist_ok=True)
 

@@ -70,6 +70,75 @@ PROJECT_IMAGE_PATH = "/mnt/data/af72e198-500e-402d-b9d6-76fecee9bd55.png"
 
 st.set_page_config(page_title="InstaForce - AI powered Salesforce deployment engine", layout="wide")
 
+# Global luxury-styled header CSS
+st.markdown(
+    """
+    <style>
+    .instaforce-hero {
+        font-family: 'Segoe UI', system-ui, -apple-system, Roboto, Ubuntu, 'Helvetica Neue', Arial, sans-serif;
+        font-size: 54px;
+        font-weight: 800;
+        letter-spacing: 0.5px;
+        margin: 0 0 8px 0;
+        line-height: 1.15;
+        background: linear-gradient(90deg, #7C3AED 0%, #06B6D4 50%, #22C55E 100%);
+        background-size: 200% 200%;
+        animation: gradientShift 6s ease infinite;
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        text-shadow: 0 1px 0 rgba(255,255,255,0.25);
+    }
+    .hero-container { margin-top: -30px; }
+    .instaforce-subtitle {
+        font-size: 26px;
+        color: #7C8BA1;
+        margin-bottom: 18px;
+        text-align: center;
+    }
+    .hero-wrap {
+        display: flex; align-items: center; justify-content: center; gap: 16px;
+        flex-wrap: wrap;
+    }
+    .hero-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: rgba(124, 58, 237, 0.1);
+        color: #7C3AED;
+        font-weight: 600;
+        border: 1px solid rgba(124, 58, 237, 0.25);
+        font-size: 12px;
+        box-shadow: 0 2px 10px rgba(124,58,237,0.12);
+        backdrop-filter: blur(4px);
+        animation: chipPulse 3.5s ease-in-out infinite;
+    }
+
+    /* Animated underline accent */
+    .hero-underline {
+        width: 160px; height: 3px; border-radius: 2px; margin: 8px auto 0 auto;
+        background: linear-gradient(90deg, rgba(124,58,237,0.9), rgba(6,182,212,0.9), rgba(34,197,94,0.9));
+        background-size: 200% 200%;
+        animation: gradientShift 6s ease infinite;
+    }
+
+    @keyframes gradientShift {
+        0% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
+        100% { background-position: 0% 50%; }
+    }
+
+    @keyframes chipPulse {
+        0%, 100% { transform: translateZ(0) scale(1); box-shadow: 0 2px 10px rgba(124,58,237,0.12); }
+        50% { transform: translateZ(0) scale(1.03); box-shadow: 0 4px 16px rgba(124,58,237,0.18); }
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 # ---- helpers ----
 def safe_serialize(obj: Any) -> str:
     try:
@@ -81,7 +150,21 @@ def append_log(agent_logs: Dict[str, list], agent_name: str, message: str, level
     agent_logs.setdefault(agent_name, []).append({"t": time.time(), "level": level, "msg": message})
 
 # ---- UI layout ----
-st.title("⚡ InstaForce - AI powered Salesforce deployment engine")
+st.markdown(
+        """
+        <div class="hero-container" style="display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center;">
+            <div class="hero-wrap">
+                <div class="instaforce-hero">⚡ InstaForce</div>
+            </div>
+            <div class="hero-wrap" style="margin-top:4px;">
+                <div class="hero-chip">AI-powered • Salesforce Deployment Engine</div>
+            </div>
+            <div class="hero-underline"></div>
+            <div class="instaforce-subtitle">Ship Salesforce changes faster with an agentic, auditable pipeline.</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+)
 
 left_col, mid_col, right_col = st.columns([3, 4, 4])
 
@@ -114,7 +197,7 @@ with mid_col:
     agents_expanders = st.container()
 
 with right_col:
-    st.header("Result & Utilities")
+    st.header("Results")
     result_area = st.empty()
     download_col1, download_col2 = st.columns(2)
     with download_col1:
@@ -122,7 +205,7 @@ with right_col:
     with download_col2:
         download_txt_btn = st.empty()
     st.markdown("---")
-    st.subheader("Graph / Workflow Preview")
+    st.subheader("Graph")
     graph_preview = st.empty()
     st.markdown("---")
     st.subheader("Run Summary")
@@ -249,19 +332,34 @@ if go_live:
     # -------------------------
     final_state = None
     try:
-        # preferred streaming call
-        try:
-            final_state = graph.invoke(initial_state, stream=stream_callback)
-        except TypeError:
-            # graph.invoke doesn't accept stream parameter — do sync run
-            final_state = graph.invoke(initial_state)
-            # the graph didn't stream, so populate placeholders from final_state
-            # try to find agent-wise outputs inside final_state
-            if isinstance(final_state, dict):
-                # heuristic: final_state might have keys like 'req_agent', 'design_agent', etc.
+        # Try native streaming via graph.stream if available
+        if hasattr(graph, "stream"):
+            try:
+                for update in graph.stream(initial_state):
+                    stream_callback(update)
+                # After streaming completes, get final state if supported
+                if hasattr(graph, "get_state"):
+                    final_state = graph.get_state()
+                else:
+                    # Fallback: invoke once to fetch final snapshot
+                    final_state = graph.invoke(initial_state)
+            except Exception:
+                # If stream fails, fallback to invoke
+                final_state = graph.invoke(initial_state)
+        else:
+            # preferred streaming call if invoke supports stream kw
+            try:
+                final_state = graph.invoke(initial_state, stream=stream_callback)
+            except TypeError:
+                # graph.invoke doesn't accept stream parameter — do sync run
+                final_state = graph.invoke(initial_state)
+
+        # Populate placeholders from final_state when no streaming per-agent outputs
+        if isinstance(final_state, dict):
+            any_updates = any(len(st.session_state.agent_logs.get(n, [])) > 0 for n in st.session_state.node_order)
+            if not any_updates:
                 for node in st.session_state.node_order:
                     node_output = final_state.get(node) or final_state.get(node + "_output")
-                    # write into placeholder
                     ph = agent_placeholders.get(node)
                     if ph:
                         ph.empty()
@@ -269,14 +367,13 @@ if go_live:
                             exp = st.expander(f"{node}", expanded=True)
                             with exp:
                                 if node_output is None:
-                                    st.write("No node-specific output in final state.")
+                                    st.write("No node-specific output available. Run completed.")
                                 else:
-                                    # pretty print
                                     try:
                                         st.json(node_output)
                                     except Exception:
                                         st.text(safe_serialize(node_output))
-            progress.progress(1.0)
+        progress.progress(1.0)
 
     except Exception as e:
         tb = traceback.format_exc()
@@ -295,7 +392,7 @@ if go_live:
         if final_state and isinstance(final_state, dict) and "deploy_status" in final_state:
             deploy_status = final_state["deploy_status"]
             
-            st.subheader("📦 Deployment Status")
+            st.subheader("Deployment Status")
             
             if deploy_status.get("success"):
                 st.success(f" {deploy_status.get('message', 'Deployment successful')}")
@@ -349,22 +446,5 @@ if go_live:
         )
 
 
-        # Also update the mid column logs (global)
-        with log_area.container():
-            st.subheader("Combined Logs")
-            # show per-agent headings with counts
-            for agent, logs in st.session_state.agent_logs.items():
-                st.markdown(f"**{agent}** — {len(logs)} entries")
-                # show last 3 lines for compact view
-                if st.session_state.verbose_logs:
-                    for line in logs[-10:]:
-                        t = time.strftime("%H:%M:%S", time.localtime(line["t"]))
-                        st.text(f"[{t}] {line['msg']}")
-                else:
-                    # compact listing
-                    last = logs[-3:]
-                    for line in last:
-                        st.markdown(f"- {line['msg'] if isinstance(line['msg'], str) else str(line['msg'])[:200]}")
-
         st.balloons()
-        st.snow()
+        # st.snow()
