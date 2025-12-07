@@ -3,6 +3,7 @@ import subprocess
 import json
 import xml.etree.ElementTree as ET
 import sys
+import shutil
 from typing import Dict, Any, List
 from src.state.state import State
 from src.agents.baseagent import BaseAgentNode
@@ -49,6 +50,11 @@ class DeployAgent(BaseAgentNode):
         DEPLOY_ROOT = "force-app"
         FORCE_APP_ROOT = os.path.join(DEPLOY_ROOT ,"main", "default")
 
+        # Check if force-app folder exists and clean it before deployment
+        if os.path.exists(DEPLOY_ROOT):
+            print(f"[INFO] Removing existing force-app folder: {DEPLOY_ROOT}")
+            shutil.rmtree(DEPLOY_ROOT)
+            print(f"[OK] Removed {DEPLOY_ROOT}")
 
         os.makedirs(FORCE_APP_ROOT, exist_ok=True)
         # files =state["files"]
@@ -61,13 +67,34 @@ class DeployAgent(BaseAgentNode):
             fname = f["fileName"]
             full_path = os.path.join(DEPLOY_ROOT, rel_path, fname)
 
-            # Validate XML first
-            try:
-                ET.fromstring(f["content"])
-                print(f"[OK] XML validated: {fname}")
-            except ET.ParseError as e:
-                print(f"[ERROR] Invalid XML: {fname}\n{e}")
-                sys.exit(1)
+            # Validate content based on file type
+            file_ext = os.path.splitext(fname)[1].lower()
+            
+            if file_ext in ['.xml', '.object', '.layout', '.profile', '.permissionset']:
+                # Validate XML files
+                try:
+                    ET.fromstring(f["content"])
+                    print(f"[OK] XML validated: {fname}")
+                except ET.ParseError as e:
+                    print(f"[ERROR] Invalid XML: {fname}\n{e}")
+                    sys.exit(1)
+            elif file_ext in ['.cls', '.trigger']:
+                # Validate Apex files - basic check for non-empty content
+                if not f["content"].strip():
+                    print(f"[ERROR] Empty Apex file: {fname}")
+                    sys.exit(1)
+                print(f"[OK] Apex file validated: {fname}")
+            elif file_ext in ['.js', '.cmp', '.app', '.evt']:
+                # Lightning/Aura components - basic check
+                if not f["content"].strip():
+                    print(f"[ERROR] Empty component file: {fname}")
+                    sys.exit(1)
+                print(f"[OK] Component file validated: {fname}")
+            else:
+                # Generic validation for other files
+                if not f["content"].strip():
+                    print(f"[WARN] Empty file: {fname}")
+                print(f"[OK] File validated: {fname}")
 
             os.makedirs(os.path.dirname(full_path), exist_ok=True)
 
@@ -85,7 +112,8 @@ class DeployAgent(BaseAgentNode):
             SF_EXE, "project", "deploy", "start",
             "-o", SF_USERNAME_ALIAS,
             # "-x", package_xml_path,
-            "-d", os.path.join(DEPLOY_ROOT, "force-app"),
+            # Use the root force-app folder directly; avoid force-app/force-app duplication
+            "-d", DEPLOY_ROOT,
             "-w", "60",
             "--json"
         ]
