@@ -60,10 +60,24 @@ import time
 import traceback
 import streamlit as st
 from typing import Any, Dict
+from pathlib import Path
+import chardet
+from dotenv import load_dotenv
+import os
 
 # Use your existing imports / classes
 from src.state.workflow import WorkflowBuilder
 from src.llm.model import LLMModel
+
+# Imports for SFMind functionality
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_community.vectorstores import FAISS
+from langchain_classic.chains import ConversationalRetrievalChain
+from langchain_classic.memory import ConversationBufferMemory
+from langchain_classic.prompts import PromptTemplate
+
+load_dotenv()
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 # Local uploaded image (from developer note)
 PROJECT_IMAGE_PATH = "/mnt/data/af72e198-500e-402d-b9d6-76fecee9bd55.png"
@@ -134,6 +148,131 @@ st.markdown(
         0%, 100% { transform: translateZ(0) scale(1); box-shadow: 0 2px 10px rgba(124,58,237,0.12); }
         50% { transform: translateZ(0) scale(1.03); box-shadow: 0 4px 16px rgba(124,58,237,0.18); }
     }
+    
+    /* Org Connection Badge */
+    .org-badge-container {
+        position: fixed;
+        top: 16px;
+        right: 16px;
+        z-index: 9999;
+        background: rgba(124, 58, 237, 0.1);
+        border: 1px solid rgba(200, 210, 220, 0.8);
+        border-radius: 10px;
+        padding: 14px 16px;
+        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 10px;
+        min-width: 240px;
+    }
+    .org-status {
+        font-size: 11px;
+        color: #64748B;
+        font-weight: 600;
+        letter-spacing: 0.4px;
+        text-transform: uppercase;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .org-status strong {
+        color: #1E293B;
+        font-weight: 700;
+    }
+    .org-name-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 17px;
+        color: white;
+        font-weight: 600;
+    }
+    .org-indicator {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #22C55E;
+        box-shadow: 0 0 8px rgba(34, 197, 94, 0.5);
+        animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+    }
+    .org-nav-btn {
+        background: linear-gradient(135deg, #667EEA 0%, #764BA2 100%);
+        color: white;
+        padding: 8px 14px;
+        border-radius: 6px;
+        font-size: 13px;
+        font-weight: 600;
+        border: none;
+        cursor: pointer;
+        box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+        transition: all 0.3s ease;
+    }
+    .org-nav-btn:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    }
+        transition: all 0.3s ease;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .org-nav-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+    }
+    
+    /* Knowledge Page Styles */
+    .knowledge-card {
+        background: linear-gradient(135deg, rgba(124, 58, 237, 0.05) 0%, rgba(6, 182, 212, 0.05) 100%);
+        border: 1px solid rgba(124, 58, 237, 0.15);
+        border-radius: 16px;
+        padding: 32px;
+        margin: 16px 0;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+    }
+    .knowledge-card:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 8px 24px rgba(124, 58, 237, 0.15);
+        border-color: rgba(124, 58, 237, 0.3);
+    }
+    .knowledge-card-title {
+        font-size: 24px;
+        font-weight: 700;
+        color: #1E293B;
+        margin-bottom: 12px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+    .knowledge-card-desc {
+        font-size: 15px;
+        color: #64748B;
+        line-height: 1.6;
+    }
+    .knowledge-icon {
+        font-size: 32px;
+    }
+    .back-btn {
+        background: #F1F5F9;
+        color: #475569;
+        padding: 8px 16px;
+        border-radius: 8px;
+        font-size: 14px;
+        font-weight: 600;
+        border: none;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+    .back-btn:hover {
+        background: #E2E8F0;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -148,6 +287,52 @@ def safe_serialize(obj: Any) -> str:
 
 def append_log(agent_logs: Dict[str, list], agent_name: str, message: str, level: str = "info"):
     agent_logs.setdefault(agent_name, []).append({"t": time.time(), "level": level, "msg": message})
+
+# ---- Initialize page state ----
+if "current_page" not in st.session_state:
+    st.session_state.current_page = "main"
+
+# ---- Org Connection Badge (fixed top-right) ----
+st.markdown(
+    """
+    <div class="org-badge-container">
+        <div class="org-status">
+            <span class="org-indicator"></span>
+            <span>Connected ORG: <strong>trailhead</strong></span>
+        </div>
+        <div class="org-name-row">
+            <span>Connected ORG: <strong>trailhead</strong></span>
+            <span style="color: #CBD5E1;"></span>
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+# ---- Navigation Button (positioned at top-right) ----
+# Use a fixed HTML button overlay
+st.markdown(
+    """
+    <style>
+        .sfmind-btn-fixed {
+            position: fixed;
+            top: 9px;
+            right: 20px;
+            z-index: 9999;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# Create invisible spacer columns to position button at top-right
+col_spacer1, col_spacer2, col_btn = st.columns([7.5, 1.8, 0.7])
+with col_btn:
+    st.markdown("<div style='margin-top: -34px;'>", unsafe_allow_html=True)
+    if st.button("SFMind", key="nav_knowledge", help="Explore org knowledge", use_container_width=True):
+        st.session_state.current_page = "knowledge"
+        st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
 
 # ---- UI layout ----
 st.markdown(
@@ -166,6 +351,199 @@ st.markdown(
         unsafe_allow_html=True,
 )
 
+# ---- SFMind Helper Functions ----
+@st.cache_resource
+def load_faiss():
+    ORG_JSON_PATH = "org_analysis_3.json"
+    INDEX_PATH = "org_vector_index"
+    index_path = Path(INDEX_PATH)
+
+    # If index already exists — load it directly
+    if index_path.exists():
+        st.info("🔁 Using existing FAISS vector index...")
+        db = FAISS.load_local(
+            index_path,
+            OpenAIEmbeddings(),
+            allow_dangerous_deserialization=True
+        )
+        return db
+
+    # Otherwise, build new FAISS index from org_analysis.json
+    st.warning("⚙️ Building new FAISS vector index (first run)...")
+    with open(ORG_JSON_PATH, "rb") as f:
+        raw = f.read()
+
+    enc = chardet.detect(raw)["encoding"] or "utf-8"
+    data = json.loads(raw.decode(enc, errors="ignore"))
+
+    with open("org_analysis.json", "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+    if isinstance(data, dict):
+        data = [data]
+
+    texts, metadata = [], []
+    for item in data:
+        if isinstance(item, dict) and "class_name" in item:
+            summary = (
+                f"Class: {item.get('class_name', '')}\n"
+                f"Description: {item.get('purpose', item.get('description', ''))}\n"
+                f"Methods: {json.dumps(item.get('methods', []))}\n"
+                f"SOQL: {json.dumps(item.get('soql_queries', item.get('soql_operations', [])))}\\n"
+                f"DML: {json.dumps(item.get('dml_operations', []))}\n"
+                f"Related Objects: {json.dumps(item.get('related_objects', item.get('other_objects_or_triggers_referenced', [])))}\\n"
+                f"Issues: {json.dumps(item.get('issues', item.get('potential_errors_or_best_practice_issues', [])))}"
+            )
+        else:
+            summary = json.dumps(item, ensure_ascii=False)
+        texts.append(summary)
+        metadata.append({"file": item.get("file", "unknown") if isinstance(item, dict) else "unknown"})
+
+    embeddings = OpenAIEmbeddings()
+    db = FAISS.from_texts(texts, embeddings, metadatas=metadata)
+    db.save_local(index_path)
+
+    st.success("✅ New FAISS index created and saved!")
+    return db
+
+
+@st.cache_resource
+def get_chain():
+    OPENAI_MODEL = "gpt-4o-mini"
+    db = load_faiss()
+    retriever = db.as_retriever(search_kwargs={"k": 5})
+    memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+
+    custom_prompt = PromptTemplate.from_template("""
+    You are an expert Salesforce Apex assistant.
+    Use the context below (from the org analysis) to answer clearly and helpfully.
+    If the context lacks the answer, use your Salesforce knowledge to infer a likely response.
+
+    CONTEXT:
+    {context}
+
+    QUESTION:
+    {question}
+
+    Respond in markdown with clear explanations.
+    """)
+
+    llm = ChatOpenAI(model=OPENAI_MODEL, temperature=0.3)
+    return ConversationalRetrievalChain.from_llm(
+        llm=llm,
+        retriever=retriever,
+        memory=memory,
+        combine_docs_chain_kwargs={"prompt": custom_prompt},
+        verbose=False
+    )
+
+
+# ---- Page Routing ----
+if st.session_state.current_page == "knowledge":
+    # SFMind Page - RAG Chat Interface
+    st.markdown("---")
+    
+    col_back, _ = st.columns([1, 9])
+    with col_back:
+        if st.button("← Back to Pipeline", key="back_to_main"):
+            st.session_state.current_page = "main"
+            st.rerun()
+    
+    st.markdown("<h2 style='text-align: center; color: #1E293B; margin: 30px 0;'>💬 SFMind - Chat with Your Salesforce Org</h2>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #64748B; margin-bottom: 40px;'>Ask questions about your Salesforce metadata and get intelligent answers</p>", unsafe_allow_html=True)
+    
+    # Initialize chat chain
+    try:
+        qa_chain = get_chain()
+        
+        # Initialize chat history in Streamlit session
+        if "chat_history" not in st.session_state:
+            st.session_state.chat_history = []
+        
+        st.markdown("---")
+        
+        query = st.text_input("💭 Ask your Salesforce Org a question:", placeholder="e.g. What does DivisionBudgetCalculatorr class do?")
+        
+        if query:
+            with st.spinner("Thinking... 🤔"):
+                response = qa_chain.invoke({"question": query})
+                answer = response["answer"]
+            
+            st.session_state.chat_history.append(("You", query))
+            st.session_state.chat_history.append(("AI", answer))
+        
+        st.markdown("### 🗨️ Chat History")
+        for role, msg in st.session_state.chat_history:
+            if role == "You":
+                st.markdown(f"**🧑 {role}:** {msg}")
+            else:
+                st.markdown(f"**🤖 {role}:** {msg}")
+        
+        st.markdown("---")
+        
+        # Knowledge Center Cards
+        st.markdown("<h3 style='text-align: center; color: #1E293B; margin: 40px 0 30px 0;'>📚 Explore Your Org</h3>", unsafe_allow_html=True)
+        
+        col1, col2, col3 = st.columns([1, 1, 1])
+        
+        with col1:
+            st.markdown(
+                """
+                <div class="knowledge-card">
+                    <div class="knowledge-card-title">
+                        <span class="knowledge-icon">📋</span>
+                        Validation Rules
+                    </div>
+                    <div class="knowledge-card-desc">
+                        Explore all validation rules configured in your Salesforce org. Understand field validations, error conditions, and business logic constraints.
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+        
+        with col2:
+            st.markdown(
+                """
+                <div class="knowledge-card">
+                    <div class="knowledge-card-title">
+                        <span class="knowledge-icon">⚡</span>
+                        Apex Classes
+                    </div>
+                    <div class="knowledge-card-desc">
+                        View all custom Apex classes, their methods, test coverage, and dependencies. Get insights into your org's custom code base.
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+        
+        with col3:
+            st.markdown(
+                """
+                <div class="knowledge-card">
+                    <div class="knowledge-card-title">
+                        <span class="knowledge-icon">🌐</span>
+                        Overall ORG
+                    </div>
+                    <div class="knowledge-card-desc">
+                        Get a comprehensive overview of your Salesforce org including objects, fields, workflows, and overall configuration summary.
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+        
+        st.markdown("---")
+        st.caption("Built with LangChain + OpenAI 🚀")
+    
+    except Exception as e:
+        st.error(f"⚠️ Error loading SFMind: {str(e)}")
+        st.info("Please ensure org_analysis_3.json exists and OpenAI API key is configured in .env file")
+    
+    st.stop()  # Stop rendering the main pipeline page
+
+# Main Pipeline Page
 left_col, mid_col, right_col = st.columns([3, 4, 4])
 
 with left_col:
